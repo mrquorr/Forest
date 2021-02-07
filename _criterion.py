@@ -10,9 +10,7 @@ class Criterion:
                  y: List,
                  sample_weight: List[float],
                  weighted_n_samples: float,
-                 samples,
-                 start,
-                 end):
+                 mask: List[bool]):
         pass
 
     def reset(self):

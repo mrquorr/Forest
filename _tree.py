@@ -1,129 +1,94 @@
 import numpy as np
 
-INFINITY = np.inf
-# TODO splitter.node_reset
-# TODO splitter.node_impurity
-# TODO splitter.node_split
 # TODO tree._add_node
 # TODO tree.node_value
 # TODO tree._resize_c
+class Node():
+    """Node containing split information
+    """
+    def __init__(self):
+        self.impurity = 0.0
+        self.mask: List[bool] = []
 
-class TreeBuilder():
-    """Interface for different tree building strategies."""
+class Tree():
+    """Array-based representation of a binary decision tree.
 
-    def build(self, tree: 'Tree', X: np.ndarray, y: np.ndarray,
-              sample_weight: np.ndarray=None):
-        """Placeholder
+    The binary tree is represented as a list of Nodes. Each Node holds information
+    on a split.
 
-        Build a decision tree from the training set (X, y)."""
-        pass
+    The binary tree is represented as a number of parallel arrays. The i-th
+    element of each array holds information about the node `i`. Node 0 is the
+    tree's root. You can find a detailed description of all arrays in
+    `_tree.pxd`. NOTE: Some of the arrays only apply to either leaves or split
+    nodes, resp. In this case the values of nodes of the other type are
+    arbitrary!
 
-    def _check_input(self, X: np.ndarray, y: np.ndarray,
-                     sample_weight: np.ndarray=None):
-        """Check input dtypa, layout and format"""
-        # TODO complete function
-        # raise error when check fails
-        pass
+    Attributes
+    ----------
+    node_count : int
+        The number of nodes (internal nodes + leaves) in the tree.
 
-class DepthFirstTreeBuilder(TreeBuilder):
-    """Build a decision tree in depth-first fashion."""
+    capacity : int
+        The current capacity (i.e., size) of the arrays, which is at least as
+        great as `node_count`.
 
-    def __init__(self, splitter: 'Splitter',
-                 min_samples_split: int,
-                 min_samples_leaf: int,
-                 min_weight_leaf: float,
-                 max_depth: int,
-                 min_impurity_decrease: float,
-                 min_impurity_split: float):
-        self.splitter = splitter
-        self.min_samples_split = min_samples_split
-        self.min_samples_leaf = min_samples_leaf
-        self.min_weight_leaf = min_weight_leaf
-        self.max_depth = max_depth
-        self.min_impurity_decrease = min_impurity_decrease
-        self.min_impurity_split = min_impurity_split
+    max_depth : int
+        The depth of the tree, i.e. the maximum depth of its leaves.
 
-    def build(self, tree: 'Tree',
-              X: np.ndarray,
-              y: np.ndarray,
-              sample_weight: np.ndarray=None):
-        """Build a decision tree from the training set (X, y)."""
+    children_left : array of int, shape [node_count]
+        children_left[i] holds the node id of the left child of node i.
+        For leaves, children_left[i] == TREE_LEAF. Otherwise,
+        children_left[i] > i. This child handles the case where
+        X[:, feature[i]] <= threshold[i].
 
-        # check input
-        self._check_input(X, y, sample_weight)
+    children_right : array of int, shape [node_count]
+        children_right[i] holds the node id of the right child of node i.
+        For leaves, children_right[i] == TREE_LEAF. Otherwise,
+        children_right[i] > i. This child handles the case where
+        X[:, feature[i]] > threshold[i].
 
-        # tree capacity
-        if tree.max_depth <= 10:
-            init_capacity = (2 ** (tree.max_depth + 1)) - 1
-        else:
-            init_capacity = 2047
+    feature : array of int, shape [node_count]
+        feature[i] holds the feature to split on, for the internal node i.
 
-        # TODO do we need resize?
-        #:# tree._resize(init_capacity)
+    threshold : array of double, shape [node_count]
+        threshold[i] holds the threshold for the internal node i.
 
-        splitter = self.splitter
-        max_depth = self.max_depth
-        min_samples_leaf = self.min_samples_leaf
-        min_weight_leaf = self.min_weight_leaf
-        min_samples_split = self.min_samples_split
-        min_impurity_decrease = self.min_impurity_decrease
-        min_impurity_split = self.min_impurity_split
+    value : array of double, shape [node_count, n_outputs, max_n_classes]
+        Contains the constant prediction value of each node.
 
-        max_depth_seen = -1
+    impurity : array of double, shape [node_count]
+        impurity[i] holds the impurity (i.e., the value of the splitting
+        criterion) at node i.
 
-        splitter.init(X, y, sample_weight_ptr)
+    n_node_samples : array of int, shape [node_count]
+        n_node_samples[i] holds the number of training samples reaching node i.
 
-        # TODO how is weighted_n_node_samples used?
-        weighted_n_node_samples = 0.0
+    weighted_n_node_samples : array of int, shape [node_count]
+        weighted_n_node_samples[i] holds the weighted number of training samples
+        reaching node i.
+    """
+    def __init__(self, n_features: int, n_classes: int, n_outputs:int=1):
+        self.n_features = n_features
+        self.n_classes = n_classes
+        self.n_outputs = n_outputs
 
-        first = 1
+        self.max_depth = 0
+        self.node_count = 0
+        self.capacity = 0
+        self.value = None
+        self.nodes = []
 
-        # each StackRecord has:
-        # start, end, depth, parent, is_left, impurity, n_constant_features
-        n_node_samples = splitter.n_samples
-        stack = [tuple(0, n_node_samples, 0, None, None, INFINITY, 0)]
+    def _add_node(self, parent: int, is_left: bool, is_leaf:bool,
+                  feature: int, threshold: float, impurity: float,
+                  n_node_samples: int, weighted_n_node_samples: float):
+        """Add a node to the tree.
+        The new node registers itself as the child of its parent.
+        """
+        node_id = self.node_count
+        #:# no need to check for allocation since this isn't cpython
+        #:#if node_id >= self.capacity:
+        #:#    # try to resize
+        #:#    # return SIZE_MAX if failed
 
-        while stack:
-            start, end, depth, parent, is_left, impurity, n_constant_features = stack.pop()
 
-            n_node_samples = end - start
-            splitter.node_reset(start, end, weighted_n_node_samples)
 
-            # node is leaf when...
-            # 1) depth is greater than max_depth
-            # 2) samples in the node are less than min_samples_split
-            # 3) samples in the node are less than 2 * min_samples_leaf
-            # 4) weighted samples are less than 2 * min_weight_leaf
-            is_leaf = (depth >= max_depth or
-                       n_node_samples < min_samples_split or
-                       n_node_samples < 2 * min_samples_leaf or
-                       weighted_n_node_samples < 2 * min_weight_leaf)
-
-            if first:
-                impurity = splitter.node_impurity()
-                first = 0
-
-            # node can also be a leaf when...
-            # 5) impurity is less than or equal to min_impurity_split
-            is_leaf = is_leaf or impurity <= min_impurity_split
-
-            if not is_leaf:
-                splitter.node_split
-
-            # TODO split.feature, split.threshold, split var does not exist(SplitRecord)
-            node_id = tree._add_node(parent, is_left, is_leaf, split.feature,
-                                     split.threshold, impurity, n_node_samples,
-                                     weighted_n_node_samples)
-
-            splitter.node_value(tree.value + node_id * tree.value_stride)
-
-            if not is_leaf:
-                stack.push(tuple(split.pos, end, depth + 1, node_id, False,
-                                 split.impurity_right, n_constant_features))
-                stack.push(tuple(left, split.pos, depth + 1, node_id, True,
-                                 split.impurity_right, n_constant_features))
-
-            if depth > max_depth_seen:
-                max_depth_seen = depth
-        tree._resize_c(tree.node_count)
-        tree.max_depth = max_depth_seen

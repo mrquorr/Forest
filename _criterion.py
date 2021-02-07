@@ -3,78 +3,133 @@ from typing import List, Tuple
 class Criterion:
     """Interface for impurity criteria.
 
-       This object stores methods on how to calculate how good a split is using
-       different metrics.
+    This object stores methods on how to calculate how good a split is using
+    different metrics.
     """
-    def __init__(self,
-                 y: List,
-                 sample_weight: List[float],
-                 weighted_n_samples: float,
-                 mask: List[bool]):
+    def __init__(self, y, sample_weight, weighted_n_samples, samples, start,
+                 end):
+        """
+        Parameters:
+        y : List[float]
+            Buffer to store values for n_outputs target variables.
+        sample_weight : List[float]
+            Weight of each sample.
+        weighted_n_samples : float
+            Total weight of samples being considered.
+        samples : List[int]
+            Indices of samples in X and y, where samples[start:end]
+            correspond to the samples in this node.
+        start
+            First sample to be used in this node.
+        end
+            Final sample to be used in this node.
+        """
         pass
 
-    def reset(self):
-        """Placeholder
 
-        Reset criterion at pos=start.
+    def reset(self):
+        """Reset criterion at pos=start.
+        Needs to be implemented by subclass.
         """
         pass
 
     def reverse_reset(self):
-        """Placeholder
-
-        Reset criterion at pos=end.
+        """Reset criterion at pos=end.
+        Needs to be implemented by subclass.
         """
         pass
 
     def update(self, new_pos: int):
-        """Placeholder
-
-        Update statistics by moving samples[pos:new_pos] from the right
+        """Update statistics by moving samples[pos:new_pos] from the right
         child to the left child.
+        This means that new_pos must be > than old_pos.
+        Needs to be implemented by subclass.
+
+        Parameters:
+        new_pos : int
+            New starting index position of the samples in the right child.
         """
         pass
 
     def node_impurity(self):
-        """Placeholder
-
-        Calculates node impurity, i.e. calculate impurity from [start:end]
+        """Calculates node impurity, i.e. calculate impurity from [start:end].
+        This is the primary function of the Criterion class, the lower the
+        impurity the better.
+        Needs to be implemented by subclass.
         """
         pass
 
     def children_impurity(self) -> Tuple[float, float]:
-        """Placeholder
-
-        Calculates children impurity, i.e.[start:pos] and [pos:end]
+        """Calculates children impurity, i.e.[start:pos] and [pos:end].
+        NOTE: Original function modified args.
+        Needs to be implemented by subclass.
         """
         pass
 
     def node_value(self) -> float:
-        """Placeholder
-
-        Calculates node value, i.e.[start:pos] and [pos:end]
+        """Calculates node value for samples[start:end].
+        NOTE: Original function modified args.
+        Needs to be implemented by subclass.
         """
         pass
 
-    #NOTE: needed for pruning
     def proxy_impurity_improvement(self) -> float:
-        pass
+        """Compute a proxy of the impurity reduction.
 
-    #NOTE: needed for pruning
-    def impurity_improvement(self):
-        pass
+        This method is used to speed up the search for the best split.
+        It is a proxy quantity such that the split that maximizes this value
+        also maximizes the impurity improvement. It neglects all constant terms
+        of the impurity decrease for a given split.
+
+        The absolute impurity improvement is only computed by the
+        impurity_improvement method once the best split has been found.
+        """
+        impurity_left, impurity_right = self.children_impurity()
+        return (- self.weighted_n_right * impurity_right
+                - self.weighted_n_left * impurity_left)
+
+
+
+    def impurity_improvement(self, impurity_parent, impurity_left,
+                             impurity_right):
+        """Compute the improvement in impurity.
+
+        This method computes the improvement in impurity when a split occurs.
+
+        The weighted impurity improvement equation is the following:
+
+            N_t / N * (impurity - N_t_R / N_t * right_impurity
+                                - N_t_L / N_t * left_impurity)
+
+        where N is the total number of samples, N_t is the number of samples
+        at the current node, N_t_L is the number of samples in the left child,
+        and N_t_R is the number of samples in the right child,
+
+        Parameters
+        ----------
+        impurity_parent : float
+            The initial impurity of the parent node before the split
+        impurity_left : float
+            The impurity of the left child
+        impurity_right : float
+            The impurity of the right child
+
+        Return
+        ------
+        float : improvement in impurity after the split occurs
+        """
+        return ((self.weighted_n_node_samples / self.weighted_n_samples) *
+            (impurity_parent - (self.weighted_n_right /
+                                self.weighted_n_node_samples * impurity_right)
+                             - (self.weighted_n_left /
+                                self.weighted_n_node_samples * impurity_left)))
 
 class ClassificationCriterion(Criterion):
-    """Abstract class for classification Criterion."""
 
     def __init__(self, n_outputs, n_classes, y, sample_weight, weighted_n_samples, samples, start, end):
         """Initialize the criterion at node samples [start:end] and children
         samples[start:start] and samples[start:end].
         """
-        #NOTE: n_outputs will be 1 until multiple outputs are supported
-        # cinit
-        n_outputs = 1
-
         self.sample_weight = None
 
         self.samples = None

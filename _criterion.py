@@ -1,4 +1,5 @@
 from typing import List, Tuple
+from libc.math
 
 class Criterion:
     """Interface for impurity criteria.
@@ -126,85 +127,224 @@ class Criterion:
 
 class ClassificationCriterion(Criterion):
 
-    def __init__(self, n_outputs, n_classes, y, sample_weight, weighted_n_samples, samples, start, end):
+    def __init__(self, n_outputs, n_classes, y, sample_weight,
+                 weighted_n_samples, samples, start, end):
         """Initialize the criterion at node samples [start:end] and children
         samples[start:start] and samples[start:end].
+
+        Parameters:
+        n_outputs : int
+            number of targets, dimentionality of prediction
+        n_classes : np.ndarray
+            unique number of classes in each target, has length of n_outputs
+        y : np.ndarray
+        sample_weight
+        weighted_n_samples
+        samples
+        start
+        end
         """
-        self.sample_weight = None
-
-        self.samples = None
-        self.start = 0
+        self.samples = samples
+        self.sample_weight = sample_weight
+        self.start = start
+        self.end = end
         self.pos = 0
-        self.end = 0
 
-        self.n_outputs = n_outputs
         self.n_samples = 0
-        self.n_node_samples = 0
+        self.n_node_samples = end - start
+        self.weighted_n_samples = weighted_n_samples
         self.weighted_n_node_samples = 0.0
         self.weighted_n_left = 0.0
         self.weighted_n_right = 0.0
 
-        self.sum_total = None
-        self.sum_left = None
-        self.sum_right = None
         self.n_classes = n_classes
+        self.n_outputs = n_outputs
+        self.max_stride = max(n_classes)
 
-        self.sum_stride = n_classes
+        # max_stride: max cardinality (classes) for the different targets
+        # n_outputs: number of targets
+        self.n_elements = self.n_outputs * self.max_stride
+        # sum lists hold for every class max_stride available spaces to store
+        # information on observed classes
 
-        #:#sum_stride = 0
+        # ex:
+        # 4 targets with 3, 2, 1, 1 classes respectively
+        # this example will have for each target 3 number counters to keep
+        # track of weighted presence of class
 
-        #:#for k in range(n_outputs):
-        #:#    self.n_classes[k] = n_classes[k]
+        self.sum_total = [0.0 for _ in range(self.n_elements)]
+        self.sum_left = [0.0 for _ in range(self.n_elements)]
+        self.sum_right = [0.0 for _ in range(self.n_elements)]
 
-        #:#    if n_classes[k] > sum_stride:
-        #:#        sum_stride = n_classes[k]
-
-        #:#self.sum_stride = sum_stride
-
-        # init
         self.y = y
-        self.sample_weight = sample_weight
-        self.samples = samples
-        self.start = start
-        self.end = end
-        self.n_node_samples = end - start
-        self.weighted_n_samples = weighted_n_samples
-        self.weighted_n_node_samples = 0.0
 
-        # read samples
+        # update sum_total with information for all n samples
         w = 1.0
-
         for p in range(start, end):
-            s = samples[p]
+            i = samples[p]
 
             if sample_weight:
                 w = sample_weight[i]
 
-            c = self.y[s]
-            #:#for k in range(self.n_outputs):
-            #:#    c = self.y[i, k]
-            #:#    sum_total[k * self.sum_stride + c] += w
+            # w will be the i'th sample's weight or 1.0 for the case of
+            # uniform distribution
+            for k in range(self.n_outputs):
+                c = self.y[i, k]
+                self.sum_total[k * self.max_stride + c] += w
 
+            self.weighted_n_node_samples += w
+
+        # set pos to start
+        self.reset()
+
+    def reset():
+        """Reset position to start.
+        After opertation:
+            left values will have
+                weighted_n : 0.0
+                sum_left = [0.0 for each of n_elements]
+            right values will have
+                weighted_n : weighted_n_node_samples
+                sum_right = list.copy(self.sum_total)
+        """
+        self.pos = self.start
+
+        self.weighted_n_left = 0.0
+        self.weighted_n_right = self.weighted_n_node_samples
+
+        # with reset, left child will have 0.0 for all target's classes and
+        # the right child will have the count of all n samples
+        self.sum_left = [0.0 for _ in range(self.n_elements)]
+        self.sum_right = list.copy(self.sum_total)
+
+    def reverse_reset():
+        """Reset position to end.
+        After opertation:
+            right values will have
+                weighted_n : 0.0
+                sum_right = [0.0 for each of n_elements]
+            left values will have
+                weighted_n : weighted_n_node_samples
+                sum_left = list.copy(self.sum_total)
+        """
+        self.pos = self.end
+
+        self.weighted_n_left = self.weighted_n_node_samples
+        self.weighted_n_right = 0.0
+
+        # with reset, right child will have 0 for all classes and left
+        # child will have the same as the total
+        self.sum_left = list.copy(self.sum_total)
+        self.sum_right = [0.0 for _ in range(self.n_elements)]
+
+    def update(new_pos):
+        """Update stats by moving samples[pos:new_pos] to the left child.
+
+        Parameters:
+        """
+        # Given that
+        #   sum_left[x] +  sum_right[x] = sum_total[x]
+        # and that sum_total is known, we are going to update
+        # sum_left from the direction that require the least amount
+        # of computations, i.e. from pos to new_pos or from end to new_pos.
+        w = 1.0
+        # 1) pos -> new_pos
+        if (new_pos - self.pos) <= (self.end - new_pos):
+            for p in range(self.pos, new_pos):
+                i = samples[p]
+                if self.sample_weight:
+                    w = self.sample_weight[i]
+                for k in range(self.n_outputs):
+                    # k: target index
+                    # max_stride: max cardinality of all target classes
+                    # y[i, k]: the kth target of the ith sample
+                    label_ix = k * self.max_stride + self.y[i, k]
+                    self.sum_left[label_ix] += w
+                self.weighted_n_left += w
+        # 2) end -> new_pos
+        else:
+            self.reverse_reset()
+
+            for p in reversed(range(new_pos, end)):
+                i = samples[p]
+                if self.sample_weight:
+                    w = sample_weight[i]
+                for k in range(self.n_outputs):
+                    label_ix = k * self.max_stride + self.y[i, k]
+                    self.sum_left[label_ix] -= w
+                self.weighted_n_left -= w
+
+        # update right part by disjointing the total n sample stats from
+        # the left stats for all targets and classes
+        self.weighted_n_right = \
+                            self.weighted_n_node_samples - self.weighted_n_left
+        for k in range(self.n_outputs):
+            for c in range(self.n_classes[k]):
+                label_ix = k * self.max_stride + c
+                self.sum_right[label_ix] = \
+                            self.sum_total[label_ix] - self.sum_left[label_ix]
+
+        self.pos = new_pos
+
+    def node_value(self):
+        """Return the sum total value for the node for samples[start:end]"""
+        return list.copy(self.sum_total)
+
+
+def log(x):
+    return math.log(x) / math.log(2.0)
 
 class Entropy(ClassificationCriterion):
-    """Entropy index impurity criterion.
+    r"""Cross Entropy impurity criterion.
+    This handles cases where the target is a classification taking values
+    0, 1, ... K-2, K-1. If node m represents a region Rm with Nm observations,
+    then let
+        count_k = 1 / Nm \sum_{x_i in Rm} I(yi = k)
+    be the proportion of class k observations in node m.
+    The cross-entropy is then defined as
+        cross-entropy = -\sum_{k=0}^{K-1} count_k log(count_k)
     """
     def node_impurity(self):
-        #NOTE n_classes currently int, can be upgraded to list for several outputs
-        n_classes = self.n_classes
-        sum_total = self.sum_total
+        """Evaluate the impurity of the current node.
+        Evaluate the cross-entropy criterion as impurity of the current node,
+        i.e. the impurity of samples[start:end]. The smaller the impurity the
+        better.
+        """
         entropy = 0.0
-        count_k = 0.0
-
-        for c in range(n_classes):
-            class_count = sum_total[c]
-            if class_count > 0.0:
-                #:# class_count /= self.weighted_n_node_samples
-                entropy -= class_count * log(class_count)
-
-            sum_total += self.sum_stride
+        for k in range(self.n_outputs):
+            for c in range(self.n_classes[k]):
+                label_ix = k * self.max_stride + c
+                count_k = sum_total[label_ix]
+                if count_k > 0.0:
+                    count_k /= self.weighted_n_node_samples
+                    entropy -= count_k * log(count_k)
 
         return entropy / self.n_outputs
 
     def children_impurity(self):
+        """Evaluate the impurity in children nodes.
+        i.e. the impurity of the left child (samples[start:pos]) and the
+        impurity the right child (samples[pos:end]).
+        """
+        entropy_left = 0.0
+        entropy_right = 0.0
+        for k in range(self.n_outputs):
+            for c in range(self.n_classes[k]):
+                label_ix = k * self.max_stride + c
+                # left aggregate
+                count_k = self.sum_left[label_ix]
+                if count_k > 0.0:
+                    count_k /= self.weighted_n_left
+                    entropy_left -= count_k * log(count_k)
+                # right aggregate
+                count_k = self.sum_right[label_ix]
+                if count_k > 0.0:
+                    count_k /= self.weighted_n_right
+                    entropy_right -= count_k * log(count_k)
+
+        entropy_left /= self.n_outputs
+        entropy_right /= self.n_outputs
+
+        return entropy_left, entropy_right
+
 

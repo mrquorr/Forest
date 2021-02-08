@@ -1,6 +1,5 @@
 FOREST
 ======
-.
 Tree (classification and regression) and Forest implementation in Python,
 simplified from the Sci-Kit learn classes for learning and explaining purposes.
 
@@ -67,10 +66,40 @@ Decides which node is the best to split based on CRITERION impurity.
 Criterion
 =========
 Function to calculate impurity for each possible node.
-Criterion
+- Criterion
+  + reset(): pos moved to start
+  + reverse-reset(): pos moved to end
+  + update-statistics(): receives new-pos, moves samples[pos:new-pos] from the
+    right child to the left child
+    * Note that this means that new-pos HAS to be greater than the old-pos.
+  + node-impurity(): calculates impurity in node (samples[start:end])
+  + children-impurity(): calculates impurity in children
+  + node-value(): calculates node value for samples[start:end]
+  + proxy-impurity-improvement(): the split that maximizes this value also
+    maximizes the impurity improvement, used to speed up best split search
+  + impurity-improvement(): compute the absolute impurity improvement only once
+    for the best split
+
   - ClassificationCriterion
+    + update()
+    * both resets will copy the sum-total
+    * Stores aggregate information for all samples in node in 3 structures.
+      Each of these structures have max-stride * n_outputs counters for
+      tracking observed weight for all classes in each output in the
+      corresponding range:
+      + sum-left: the sum of the left node with samples[start:pos]
+      + sum-right: the sum of the right node with samples[pos:end]
+      + sum-total: the sum of all samples[start:end]
+
     - Entropy
+      + node-impurity():
+        * returns the impurity for samples[start:end] by using sum-total
+      + children-impurity():
+        * returns the impurity for samples[start:pos] and samples[pos:end] by
+          using sum-left and sum-right
+
     - Gini
+
   - RegressionCriterion
     - MSE
     - MAE

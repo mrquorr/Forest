@@ -31,26 +31,6 @@ class Splitter():
     min_weight_leaf : float
         Min leaf weight each leaf can have. The leaf weight is the sum of the
         weights of each sample in the leaf.
-    """
-    def __init__(self, criterion, max_features, min_samples_leaf,
-                 min_weight_leaf):
-        self.criterion = criterion
-        self.samples = None
-        self.n_samples = 0
-        self.features = None
-        self.n_features = 0
-        self.feature_values = None
-
-        self.sample_weight = None
-
-        self.max_features = max_features
-        self.min_samples_leaf = min_samples_leaf
-        self.min_weight_leaf = min_weight_leaf
-        # rand state var
-
-    """Callable init.
-
-    Parameters:
     X : np.ndarray
         This object contains the inputs. 2d array.
     y : np.ndarray
@@ -58,33 +38,35 @@ class Splitter():
     sample_weight : np.ndarray
         Weights of the samples. If not provided, uniform weight is assumed.
     """
-    def init(self, X, y, sample_weight=None):
+    def __init__(self, criterion, max_features, min_samples_leaf,
+                 min_weight_leaf, X, y, sample_weight=None):
         # samples are rows of X
-        samples = []
-        n_samples = X.shape[0]
+        self.samples = []
 
+        n_samples = X.shape[0]
+        weighted_n_samples = 0.0
         for i in range(n_samples):
             # only work with positively weighted samples
             if sample_weight == None or sample_weight[i] >= 0.0:
-                samples.append(X[i])
+                self.samples.append(X[i])
 
+            # weighted_n_samples have a total weighted sum of samples
             if sample_weight != None:
                 weighted_n_samples += sample_weight[i]
             else:
                 weighted_n_samples += 1.0
 
         # n_samples could have less than the actually used samples
-        self.n_samples = len(samples)
-        self.samples = samples
+        self.n_samples = len(self.samples)
         self.weighted_n_samples = weighted_n_samples
         self.sample_weight = sample_weight
 
         # features are cols of X
         self.n_features = X.shape[1]
-        self.features = list(range(n_features))
+        self.features = list(range(self.n_features))
 
-        self.feature_values = n_samples
-        self.constant_features = n_features
+        self.feature_values = [None for _ in range(self.n_samples)]
+        self.constant_features = [None for _ in range(self.n_features)]
         self.y = y
 
     def node_reset(self, start, end, weighted_n_node_samples):
@@ -99,29 +81,20 @@ class Splitter():
                             start,
                             end)
 
-        #TODO ????!?!??!?
-        weighted_n_node_samples[0] = self.criterion.weighted_n_node_samples
+        return self.criterion.weighted_n_node_samples
 
     def node_value(self):
-        # TODO finish for visibility
-        """Copy the value of node samples[start:end] into dest."""
-        pass
+        return self.criterion.node_value()
 
     def node_impurity(self):
         return self.criterion.node_impurity()
 
+
 class BaseDenseSplitter(Splitter):
     def __init__(self, criterion, max_features, min_samples_leaf,
-                 min_weight_leaf):
+                 min_weight_leaf, X, y, sample_weight=None):
         super.__init__(criterion, max_features, min_xamples_leaf,
-                       min_weight_leaf)
-
-    def init(self, X, y, sample_weight):
-        # call parent init
-        #:#self.init(X, y, sample_weight)
-        super.init(self, X, y, sample_weight)
-
-        # set X
+                       min_weight_leaf, X, y, sample_weight)
         self.X = X
 
 
